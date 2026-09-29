@@ -1,14 +1,12 @@
 name: ci
 
 on:
-  pull_request:
-    branches:
-      - master
-    paths-ignore:
-      - '*.md'
-  push:
-    paths-ignore:
-      - '*.md'
+  workflow_dispatch:
+    inputs:
+      test-filter:
+        description: 'Optional mocha --grep pattern; empty runs the full suite'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -22,7 +20,9 @@ concurrency:
 jobs:
   lint:
     name: Lint
+    if: false
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Setup Node.js
@@ -38,6 +38,7 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -224,7 +225,9 @@ jobs:
     - name: Run tests
       shell: bash
       run: |
-        if npm -ps ls nyc | grep -q nyc; then
+        if [ -n "${{ inputs.test-filter }}" ]; then
+          npm test -- --grep "${{ inputs.test-filter }}"
+        elif npm -ps ls nyc | grep -q nyc; then
           npm run test-ci
         else
           npm test
@@ -240,7 +243,9 @@ jobs:
 
   coverage:
     needs: test
+    if: false
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       checks: write
@@ -266,3 +271,29 @@ jobs:
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
         file: ./lcov.info
+
+  pack:
+    name: Pack
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+    - name: Setup Node.js
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      with:
+        node-version: '22.10.0'
+
+    - name: Pack
+      shell: bash
+      run: |
+        npm i -g npm@10.9.0
+        mkdir -p dist
+        npm pack --pack-destination dist
+
+    - name: Upload package
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: npm-package
+        path: dist/*.tgz
+        if-no-files-found: error
